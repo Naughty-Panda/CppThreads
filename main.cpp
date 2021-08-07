@@ -4,11 +4,18 @@
 //////////////////////////////////////////
 
 #include <iostream>
+#include <iomanip>
 #include <ostream>
 #include <cmath>
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <set>
+#include <ppl.h>
+#include <concurrent_vector.h>
+#include <algorithm>
+#include <execution>
+#include <chrono>
 
 //////////////////////////////////////////
 //	6.1
@@ -63,6 +70,49 @@ size_t CalculatePrime(const size_t& num) {
 	return nLargest;
 }
 
+//////////////////////////////////////////
+//	6.3
+//////////////////////////////////////////
+
+struct Item {
+
+private:
+	std::string _name{ "" };
+	size_t _value{ 0 };
+
+public:
+	Item(const char* name, const size_t& val) : _name(name), _value(val) {}
+
+	friend bool operator < (const Item& lhs, const Item& rhs) { return lhs._value < rhs._value; }
+	friend std::ostream& operator << (std::ostream& ostr, const Item& it) { return ostr << std::quoted(it._name) << " for " << it._value << '$'; }
+};
+
+void BuyFromStore(std::vector<Item>& shop, std::set<Item>& house, std::mutex& key) {
+
+	if (shop.empty()) return;
+
+	std::lock_guard lg(key);
+
+	for (size_t i = 0; i < 2; ++i) {
+
+		std::cout << "\n[+] Buying item: " << shop.back();
+		house.insert(std::move(shop.back()));
+		shop.pop_back();
+	}
+}
+
+void StealFromHouse(std::set<Item>& house, std::mutex& key) {
+
+	if (house.empty()) return;
+
+	std::lock_guard lg(key);
+
+	std::cout << "\n[-] Stealing item: " << *std::prev(house.end());
+	house.erase(std::prev(house.end()));
+}
+
+
+
 int main() {
 
 	std::cout << "CPU threads: " << std::thread::hardware_concurrency() << '\n';
@@ -90,13 +140,49 @@ int main() {
 	//	6.2
 	//////////////////////////////////////////
 
-	size_t PrimeNumToFind{ 10'000 };
+	size_t PrimeNumToFind{ 1'000 };
 	size_t CalcResult{ 0 };
 
 	std::thread PrimeCalculator([&] { CalcResult = CalculatePrime(std::ref(PrimeNumToFind)); });
 	PrimeCalculator.join();
 
 	std::cout << "\nPrime number #" << PrimeNumToFind << ": " << CalcResult;
+
+	//////////////////////////////////////////
+	//	6.3
+	//////////////////////////////////////////
+
+	std::vector<Item> item_store{ {"TV", 500}, {"Radio", 200}, {"Sofa", 300}, {"Mirror", 150}, {"Table", 250}, {"Desk", 175}, {"Fan", 225}, {"Laptop", 850}, {"Phone", 95}, {"Stereo", 425} };
+	
+	std::cout << "\n\nItems in store:\n";
+	std::copy(item_store.begin(), item_store.end(), std::ostream_iterator<Item>(std::cout, "; "));
+	std::cout << '\n';
+
+	std::set<Item> house;
+	std::mutex key;
+
+	std::thread master([&]
+	{
+		for (size_t i = 0; i < 5; ++i) {
+
+			BuyFromStore(item_store, house, key);
+			using namespace std::chrono_literals;
+			std::this_thread::sleep_for(3s);
+		}
+	});
+
+	std::thread theif([&]
+	{
+		for (size_t i = 0; i < 10; ++i) {
+
+			StealFromHouse(house, key);
+			using namespace std::chrono_literals;
+			std::this_thread::sleep_for(2s);
+		}
+	});
+
+	master.join();
+	theif.join();
 
 	return 0;
 }
